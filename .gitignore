@@ -9,3 +9,4 @@ RayTracer/build
 *.o
 hw3
 output.jpg
+.DS_Store

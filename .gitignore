@@ -1,0 +1,11 @@
+.vscode
+.idea
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+vs2022.props
+RayTracer/build
+*.o
+hw3
+output.jpg

@@ -68,6 +68,74 @@ struct Vertex
 struct Triangle
 {
   Vertex v[3];
+  Vector3 planeNormal;
+  void CalculatePlaneNormal(){
+    Vector3 A (v[0].position[0], v[0].position[1], v[0].position[2]);
+    Vector3 B(v[1].position[0], v[1].position[1], v[1].position[2]);
+    Vector3 C(v[2].position[0], v[2].position[1], v[2].position[2]);
+    Vector3 AB = B - A;
+    Vector3 AC = C - A;
+    planeNormal = Vector3::Cross(AB, AC);
+    planeNormal.Normalize();
+  }
+
+  Vector3 CalculateBarycentricCoordinates(Triangle triangle, Vector3 p){
+    Vector3 barycentric;
+    float ax, ay, bx, by, cx, cy, px, py;
+    ProjectTriangleAndPointTo2D(triangle, p, ax, ay, bx, by, cx, cy, px, py);
+
+    float areaABC = GetArea2D(ax, ay, bx, by, cx, cy);
+    if (fabs(areaABC) < SMALL_VALUE) {
+        barycentric.x = barycentric.y = barycentric.z = -1.0f;
+        return barycentric;
+    }
+
+    float areaPBC = GetArea2D(px, py, bx, by, cx, cy);
+    float areaAPC = GetArea2D(ax, ay, px, py, cx, cy);
+    float areaABP = GetArea2D(ax, ay, bx, by, px, py);
+
+    barycentric.x = areaPBC / areaABC;
+    barycentric.y = areaAPC / areaABC;
+    barycentric.z = areaABP / areaABC;
+
+    return barycentric;
+  }
+
+  static float GetArea2D(float ax, float ay, float bx, float by, float cx, float cy){
+    return (0.5f) * ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay));
+  }
+
+  void ProjectPointTo2D(const Vector3& normal, const Vector3& p, float& u, float& v) {
+    float nx = fabs(normal.x);
+    float ny = fabs(normal.y);
+    float nz = fabs(normal.z);
+    if (nx > ny && nx > nz) {
+        // Project to YZ
+        u = p.y;
+        v = p.z;
+    } else if (ny > nz) {
+        // Project to XZ
+        u = p.x;
+        v = p.z;
+    } else {
+        // Project to XY
+        u = p.x;
+        v = p.y;
+    }
+  }
+
+  void ProjectTriangleAndPointTo2D(const Triangle& tri, const Vector3& p,
+    float& ax, float& ay,
+    float& bx, float& by,
+    float& cx, float& cy,
+    float& px, float& py)
+  {
+    Vector3 normal = tri.planeNormal;
+    ProjectPointTo2D(normal, Vector3(tri.v[0].position[0], tri.v[0].position[1], tri.v[0].position[2]), ax, ay);
+    ProjectPointTo2D(normal, Vector3(tri.v[1].position[0], tri.v[1].position[1], tri.v[1].position[2]), bx, by);
+    ProjectPointTo2D(normal, Vector3(tri.v[2].position[0], tri.v[2].position[1], tri.v[2].position[2]), cx, cy);
+    ProjectPointTo2D(normal, p, px, py);
+  }
 };
 
 struct Sphere
@@ -108,7 +176,7 @@ void GenerateCameraRays() {
       float px = (2 * ((x + 0.5f) / (float)WIDTH) - 1) * aspect * scale;
       float py = (1 - 2 * ((y + 0.5f) / (float)HEIGHT)) * scale;
       Vector3 dir(px, py, -1.0f);
-      cameraRays[y][x] = Ray(Vector3(0, 0, 0), dir);
+      cameraRays[HEIGHT-y-1][x] = Ray(Vector3(0, 0, 0), dir);
     }
   }
 }
@@ -132,7 +200,6 @@ bool HasHitSphere(Sphere sphere, Ray ray, float& t){
   float t0 = (-b - sqrt_disc) / (2.0f * a);
   float t1 = (-b + sqrt_disc) / (2.0f * a);
 
-  // Find the nearest positive t
   if (t0 > SMALL_VALUE) {
       t = t0;
       return true;
@@ -140,6 +207,35 @@ bool HasHitSphere(Sphere sphere, Ray ray, float& t){
       t = t1;
       return true;
   }
+  return false;
+}
+
+bool HasHitTriangle(Triangle triangle, Ray ray, float& t){
+  float ray_triplanenorm_dot = Vector3::Dot(triangle.planeNormal, ray.d);
+  if (fabs(ray_triplanenorm_dot) < SMALL_VALUE){
+      return false; //ray parallel to triangle
+  }
+
+  //intersection with triangle plane
+  Vector3 v0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+  float d = Vector3::Dot(triangle.planeNormal, v0);
+  float t_temp = (d - Vector3::Dot(triangle.planeNormal, ray.p)) / ray_triplanenorm_dot;
+
+  if (t_temp < SMALL_VALUE) {
+    return false; // Intersection behind ray origin
+  }
+
+  Vector3 p = ray.p + ray.d * t_temp;
+  Vector3 bary = triangle.CalculateBarycentricCoordinates(triangle, p);
+
+  // Check if point is inside triangle
+  if (bary.x >= 0.0f && bary.y >= 0.0f && bary.z >= 0.0f &&
+    bary.x <= 1.0f && bary.y <= 1.0f && bary.z <= 1.0f &&
+    fabs(bary.x + bary.y + bary.z - 1.0f) < SMALL_VALUE) {
+    t = t_temp;
+    return true;
+  }
+
   return false;
 }
 
@@ -165,6 +261,27 @@ bool CheckSphereIntersections(Ray ray, Sphere& hitSphere, float& t){
   return hasSphereIntersect;
 }
 
+bool CheckTriangleIntersections(Ray ray, Triangle& hitTriangle, float& t)
+{
+  bool hasTriangleIntersect = false;
+    float minDistSqr = MAXFLOAT;
+    t = -1.0f;
+    for (int i = 0; i < num_triangles; i++) {
+        float rayT;
+        if (HasHitTriangle(triangles[i], ray, rayT)) {
+            Vector3 hitPoint = ray.p + ray.d * rayT;
+            float distSqr = (hitPoint - ray.p).LengthSquared();
+            if (distSqr < minDistSqr) {
+                hasTriangleIntersect = true;
+                minDistSqr = distSqr;
+                t = rayT;
+                hitTriangle = triangles[i];
+            }
+        }
+    }
+  return hasTriangleIntersect;
+}
+
 void draw_scene()
 {
   GenerateCameraRays();
@@ -180,11 +297,20 @@ void draw_scene()
       float t;
       Sphere hitSphere;
       bool hasSphereIntersect = CheckSphereIntersections(ray, hitSphere, t);
+
+      float triT;
+      Triangle hitTri;
+      bool hasTriangleIntersect = CheckTriangleIntersections(ray, hitTri, triT);
       // A simple R,G,B output for testing purposes.
       // Modify these R,G,B colors to the values computed by your ray tracer.
       unsigned char r = 0; // modify
       unsigned char g = 0; // modify
       unsigned char b;
+
+      if (hasTriangleIntersect){
+        r = 255;
+      }
+
       if (hasSphereIntersect){
         Vector3 spherePos( hitSphere.position[0],hitSphere.position[1],hitSphere.position[2]);
         Vector3 normal = (ray.at(t) - spherePos)/hitSphere.radius;
@@ -196,6 +322,7 @@ void draw_scene()
       else{
         b = 0;
       }
+
       plot_pixel(x, y, r, g, b);
     }
     glEnd();
@@ -314,6 +441,7 @@ int loadScene(char *argv)
         printf("too many triangles, you should increase MAX_TRIANGLES!\n");
         exit(0);
       }
+      t.CalculatePlaneNormal();
       triangles[num_triangles++] = t;
     }
     else if(strcasecmp(type,"sphere")==0)

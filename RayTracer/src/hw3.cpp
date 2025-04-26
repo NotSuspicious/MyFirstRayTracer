@@ -41,20 +41,24 @@ char * filename = NULL;
 // The different display modes.
 #define MODE_DISPLAY 1
 #define MODE_JPEG 2
+#define MAX_DEPTH 1
 
 int mode = MODE_DISPLAY;
 
 // While solving the homework, it is useful to make the below values smaller for debugging purposes.
 // The still images that you need to submit with the homework should be at the below resolution (640x480).
 // However, for your own purposes, after you have solved the homework, you can increase those values to obtain higher-resolution images.
-#define WIDTH 160
-#define HEIGHT 120
+#define WIDTH 640
+#define HEIGHT 480
 
 // The field of view of the camera, in degrees.
 #define fov 60.0
+#define BACKGROUND_COLOR Color(0.0f, 0.0f, 0.0f)
 
 // Buffer to store the image when saving it to a JPEG.
 unsigned char buffer[HEIGHT][WIDTH][3];
+
+unsigned char colors[HEIGHT][WIDTH][3];
 
 struct Vertex
 {
@@ -63,6 +67,16 @@ struct Vertex
   double color_specular[3];
   double normal[3];
   double shininess;
+};
+
+struct Color {
+  float r,g,b,a;
+  Color() : r(0), g(0), b(0), a(0) {}
+  Color(float _r, float _g, float _b, float _a=1.0f)
+    : r(_r), g(_g), b(_b), a(_a) {}
+  Color operator+(const Color& o) const {
+    return Color(r+o.r, g+o.g, b+o.b, a+o.a);
+  }
 };
 
 struct Triangle
@@ -175,6 +189,10 @@ int num_lights = 0;
 void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
+
+
+Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, int depth = 0);
+Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, int depth = 0);
 
 Ray cameraRays[HEIGHT][WIDTH];
 
@@ -292,6 +310,185 @@ bool CheckTriangleIntersections(Ray ray, Triangle& hitTriangle, float& t)
   return hasTriangleIntersect;
 }
 
+Color CalculateSphereColor(Sphere sphere, Light light, Vector3 l, Vector3 n, Vector3 v)
+{
+  Vector3 r = Vector3::Reflect(-1 * l, n);
+  float kd[3] = {sphere.color_diffuse[0], sphere.color_diffuse[1], sphere.color_diffuse[2]};
+  float ks[3] = {sphere.color_specular[0], sphere.color_specular[1], sphere.color_specular[2]};
+  float shininess = sphere.shininess;
+
+  float l_dot_n = Vector3::Dot(l, n);
+  if (l_dot_n < 0){ l_dot_n = 0; }
+  float r_dot_v = Vector3::Dot(r, v);
+  if (r_dot_v < 0){  r_dot_v = 0;  }
+  
+  Color sphereColor;
+
+  sphereColor.r = light.color[0] * (kd[0] * l_dot_n + ks[0] * pow(r_dot_v, shininess));
+  sphereColor.g = light.color[1] * (kd[1] * l_dot_n + ks[1] * pow(r_dot_v, shininess));
+  sphereColor.b = light.color[2] * (kd[2] * l_dot_n + ks[2] * pow(r_dot_v, shininess));
+  sphereColor.a = 1;
+
+  return sphereColor;
+}
+
+Color CalculateTriangleColor(Triangle triangle, Light light, Vector3 point, Vector3 l, Vector3 n, Vector3 v)
+{
+  Vector3 r = Vector3::Reflect(-1 *l, n);
+  Vector3 bary = triangle.CalculateBarycentricCoordinates(triangle, point);
+  float kd[3] = {bary.x * triangle.v[0].color_diffuse[0] + bary.y * triangle.v[1].color_diffuse[0] + bary.z * triangle.v[2].color_diffuse[0],
+              bary.x * triangle.v[0].color_diffuse[1] + bary.y * triangle.v[1].color_diffuse[1] + bary.z * triangle.v[2].color_diffuse[1],
+              bary.x * triangle.v[0].color_diffuse[2] + bary.y * triangle.v[1].color_diffuse[2] + bary.z * triangle.v[2].color_diffuse[2]}; 
+  float ks[3] = {bary.x * triangle.v[0].color_specular[0] + bary.y * triangle.v[1].color_specular[0] + bary.z * triangle.v[2].color_specular[0],
+              bary.x * triangle.v[0].color_specular[1] + bary.y * triangle.v[1].color_specular[1] + bary.z * triangle.v[2].color_specular[1],
+              bary.x * triangle.v[0].color_specular[2] + bary.y * triangle.v[1].color_specular[2] + bary.z * triangle.v[2].color_specular[2]};
+  float shininess = bary.x * triangle.v[0].shininess + bary.y * triangle.v[1].shininess + bary.z * triangle.v[2].shininess;
+
+  float l_dot_n = Vector3::Dot(l, n);
+  if (l_dot_n < 0){ l_dot_n = 0; }
+  float r_dot_v = Vector3::Dot(r, v);
+  if (r_dot_v < 0){  r_dot_v = 0;  }
+
+  Color triangleColor;
+
+  triangleColor.r = light.color[0] * (kd[0] * l_dot_n + ks[0] * pow(r_dot_v, shininess));
+  triangleColor.g = light.color[1] * (kd[1] * l_dot_n + ks[1] * pow(r_dot_v, shininess));
+  triangleColor.b = light.color[2] * (kd[2] * l_dot_n + ks[2] * pow(r_dot_v, shininess));
+  triangleColor.a = 1;
+
+  return triangleColor;
+}
+
+Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, int depth)
+{
+  if (depth >= MAX_DEPTH){
+    return Color();
+  }
+  Color color;
+  for (int i = 0; i < num_lights; i++) {
+    Vector3 lightPos(lights[i].position[0], lights[i].position[1], lights[i].position[2]);
+    Ray ray(point, lightPos - point);
+
+    float sphere_t, tri_t;
+    Sphere hitSphere;
+    Triangle hitTriangle;
+    bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
+    bool tri_intersect = CheckTriangleIntersections(ray, hitTriangle, tri_t);
+
+    // if (sphere_intersect && tri_intersect) {
+    //   if (sphere_t < tri_t) {
+    //     Vector3 hitPosition = ray.at(sphere_t);
+    //     Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, depth + 1);
+    //     color = color + sub;
+    //     continue;
+    //   } else {
+    //     Vector3 hitPosition = ray.at(tri_t);
+    //     Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, depth + 1);
+    //     color = color + sub;
+    //     continue;
+    //   }
+    // }
+    // else
+    if (sphere_intersect) {
+      // Vector3 hitPosition = ray.at(sphere_t);
+      // Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, depth + 1);
+      // color = color + sub;
+      continue;
+    }
+    else if (tri_intersect) {
+      // Vector3 hitPosition = ray.at(tri_t);
+      // Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, depth + 1);
+      // color = color + sub;
+      continue;
+    }
+
+    Vector3 l = ray.d; l.Normalize();
+    Vector3 n = source.GetInterpolatedNormal(point);
+    Vector3 v = -1.0 * view.d; v.Normalize();
+    Color newCol = CalculateTriangleColor(source, lights[i], point, l, n, v);
+    color = color + newCol;
+  }
+  // ambient
+  Color amb(ambient_light[0], ambient_light[1], ambient_light[2]);
+  color = color + amb;
+  return color;
+}
+
+Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, int depth)
+{
+  if (depth >= MAX_DEPTH){
+    return Color();
+  }
+  Color color;
+  for (int i = 0; i < num_lights; i++) {
+    Vector3 lightPos(lights[i].position[0], lights[i].position[1], lights[i].position[2]);
+    Ray ray(point, lightPos - point);
+
+    float sphere_t, tri_t;
+    Sphere hitSphere;
+    Triangle hitTriangle;
+    bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
+    bool tri_intersect    = CheckTriangleIntersections(ray, hitTriangle, tri_t);
+
+    if (sphere_intersect) {
+      Vector3 hitPosition = ray.at(sphere_t);
+      Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, view, depth + 1);
+      color = color + sub;
+      continue;
+    }
+    else if (tri_intersect) {
+      Vector3 hitPosition = ray.at(tri_t);
+      Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, view, depth + 1);
+      color = color + sub;
+      continue;
+    }
+
+    Vector3 l = ray.d; l.Normalize();
+    Vector3 n = (point - Vector3(source.position[0], source.position[1], source.position[2])) / source.radius;
+    Vector3 v = -1 * view.d; v.Normalize();
+    Color newCol = CalculateSphereColor(source, lights[i], l, n, v);
+    color = color + newCol;
+  }
+  // ambient
+  Color amb(ambient_light[0], ambient_light[1], ambient_light[2]);
+  color = color + amb;
+  return color;
+}
+
+Color CastCameraRay(Ray ray, int depth = 0)
+{
+  if (depth >= MAX_DEPTH){
+    return Color();
+  }
+  Color color;
+  float sphere_t, tri_t;
+  Sphere hitSphere;
+  Triangle hitTriangle;
+  bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
+  bool tri_intersect = CheckTriangleIntersections(ray, hitTriangle, tri_t);
+
+  if (sphere_intersect && tri_intersect) {
+    if (sphere_t < tri_t) {
+      Vector3 hitPosition = ray.at(sphere_t);
+      return CastShadowRayFromSphere(hitPosition, hitSphere, ray);
+    } else {
+      Vector3 hitPosition = ray.at(tri_t);
+      return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray);
+    }
+  }
+  else if (sphere_intersect) {
+    Vector3 hitPosition = ray.at(sphere_t);
+    // return Color(hitSphere.color_diffuse[0], hitSphere.color_diffuse[1], hitSphere.color_diffuse[2]);
+    return CastShadowRayFromSphere(hitPosition, hitSphere, ray);
+  } else if (tri_intersect) {
+    Vector3 hitPosition = ray.at(tri_t);
+    // return Color(hitTriangle.v[0].color_diffuse[0], hitTriangle.v[0].color_diffuse[1], hitTriangle.v[0].color_diffuse[2]);
+    return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray);
+  } else {
+    return BACKGROUND_COLOR;
+  }
+}
+
 void draw_scene()
 {
   GenerateCameraRays();
@@ -304,39 +501,47 @@ void draw_scene()
     for(unsigned int y=0; y<HEIGHT; y++)
     {
       Ray ray = cameraRays[y][x];
-      float t;
-      Sphere hitSphere;
-      bool hasSphereIntersect = CheckSphereIntersections(ray, hitSphere, t);
+      // float t;
+      // Sphere hitSphere;
+      // bool hasSphereIntersect = CheckSphereIntersections(ray, hitSphere, t);
 
-      float triT;
-      Triangle hitTri;
-      bool hasTriangleIntersect = CheckTriangleIntersections(ray, hitTri, triT);
-      // A simple R,G,B output for testing purposes.
-      // Modify these R,G,B colors to the values computed by your ray tracer.
-      unsigned char r = 0; // modify
-      unsigned char g = 0; // modify
-      unsigned char b;
+      // float triT;
+      // Triangle hitTri;
+      // bool hasTriangleIntersect = CheckTriangleIntersections(ray, hitTri, triT);
+      // // A simple R,G,B output for testing purposes.
+      // // Modify these R,G,B colors to the values computed by your ray tracer.
+      // unsigned char r = 0; // modify
+      // unsigned char g = 0; // modify
+      // unsigned char b;
 
-      if (hasTriangleIntersect){
-        Vector3 hitPoint = ray.at(triT);
-        Vector3 interpolatedNormal = hitTri.GetInterpolatedNormal(hitPoint);
+      // if (hasTriangleIntersect){
+      //   Vector3 hitPoint = ray.at(triT);
+      //   Vector3 interpolatedNormal = hitTri.GetInterpolatedNormal(hitPoint);
 
-        r = (unsigned char)(127.5f * (interpolatedNormal.x + 1.0f));
-        g = (unsigned char)(127.5f * (interpolatedNormal.y + 1.0f));
-        b = (unsigned char)(127.5f * (interpolatedNormal.z + 1.0f));
-      }
+      //   r = (unsigned char)(127.5f * (interpolatedNormal.x + 1.0f));
+      //   g = (unsigned char)(127.5f * (interpolatedNormal.y + 1.0f));
+      //   b = (unsigned char)(127.5f * (interpolatedNormal.z + 1.0f));
+      // }
 
-      if (hasSphereIntersect){
-        Vector3 spherePos( hitSphere.position[0],hitSphere.position[1],hitSphere.position[2]);
-        Vector3 normal = (ray.at(t) - spherePos)/hitSphere.radius;
+      // if (hasSphereIntersect){
+      //   Vector3 spherePos( hitSphere.position[0],hitSphere.position[1],hitSphere.position[2]);
+      //   Vector3 normal = (ray.at(t) - spherePos)/hitSphere.radius;
 
-        r = (unsigned char)(127.5f * (normal.x + 1.0f));
-        g = (unsigned char)(127.5f * (normal.y + 1.0f));
-        b = (unsigned char)(127.5f * (normal.z + 1.0f));
-      }
-      else{
-        b = 0;
-      }
+      //   r = (unsigned char)(127.5f * (normal.x + 1.0f));
+      //   g = (unsigned char)(127.5f * (normal.y + 1.0f));
+      //   b = (unsigned char)(127.5f * (normal.z + 1.0f));
+      // }
+      // else{
+      //   b = 0;
+      // }
+
+      Color color = CastCameraRay(ray);
+      unsigned char r = (unsigned char)(color.r * 255);
+      unsigned char g = (unsigned char)(color.g * 255);
+      unsigned char b = (unsigned char)(color.b * 255);
+      colors[y][x][0] = r;
+      colors[y][x][1] = g;
+      colors[y][x][2] = b;
 
       plot_pixel(x, y, r, g, b);
     }

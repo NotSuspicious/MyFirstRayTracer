@@ -12,9 +12,9 @@ Feature:                                 Status: finish? (yes/no)
 
 2) Ray tracing sphere                     DONE
 
-3) Triangle Phong Shading                 !!!no, explain!!!
+3) Triangle Phong Shading                 DONE
 
-4) Sphere Phong Shading                   !!!no, explain!!!
+4) Sphere Phong Shading                   DONE
 
 5) Shadows rays                           !!!no, explain!!!
 

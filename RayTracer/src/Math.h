@@ -45,6 +45,14 @@ struct Vector3
             a.x * b.y - a.y * b.x
         );
     }
+    static Vector3 Reflect(const Vector3& v, const Vector3& n)
+    {
+        Vector3 normalizedN = n;
+        normalizedN.Normalize();
+        float dot = 2 * Dot(v, normalizedN);
+        Vector3 reflected = normalizedN * dot;
+        return v - reflected;
+    }
     float Length() const
     {
         return std::sqrt(x * x + y * y + z * z);

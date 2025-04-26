@@ -35,6 +35,7 @@
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
 #define SMALL_VALUE 1e-4
+#define LIGHT_SAMPLES 1024
 
 char * filename = NULL;
 
@@ -76,6 +77,9 @@ struct Color {
     : r(_r), g(_g), b(_b), a(_a) {}
   Color operator+(const Color& o) const {
     return Color(r+o.r, g+o.g, b+o.b, a+o.a);
+  }
+  Color operator*(float o) const {
+    return Color(r*o, g*o, b*o, a);
   }
 };
 
@@ -175,6 +179,12 @@ struct Light
 {
   double position[3];
   double color[3];
+  double radius = 1.0f;
+  Vector3 GetRandomPointOnLight() {
+    Vector3 lightPos(position[0], position[1], position[2]);
+    Vector3 randomPoint = lightPos + Vector3::RandomInUnitSphere() * radius;
+    return randomPoint;
+  }
 };
 
 Triangle triangles[MAX_TRIANGLES];
@@ -191,8 +201,8 @@ void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 
 
-Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, int depth = 0);
-Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, int depth = 0);
+Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, float view_t, int depth = 0);
+Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, float view_t, int depth = 0);
 
 Ray cameraRays[HEIGHT][WIDTH];
 
@@ -220,7 +230,7 @@ bool HasHitSphere(Sphere sphere, Ray ray, float& t){
   float c_term = Vector3::Dot(oc, oc) - sphere.radius * sphere.radius;
 
   float discriminant = b * b - 4 * a * c_term;
-  if (discriminant < 0.0f) {
+  if (discriminant <= 0.0f) {
       return false;
   }
 
@@ -272,7 +282,7 @@ bool CheckSphereIntersections(Ray ray, Sphere& hitSphere, float& t){
   float minDistSqr = MAXFLOAT;
   t = -1.0f;
   for (int i = 0 ; i < num_spheres ; i++){
-    if (spheres[i].radius == 0.0f){
+    if (spheres[i].radius < SMALL_VALUE){
       continue;
     }
     float rayT;
@@ -359,54 +369,40 @@ Color CalculateTriangleColor(Triangle triangle, Light light, Vector3 point, Vect
   return triangleColor;
 }
 
-Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, int depth)
+Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, float view_t, int depth)
 {
   if (depth >= MAX_DEPTH){
     return Color();
   }
   Color color;
   for (int i = 0; i < num_lights; i++) {
-    Vector3 lightPos(lights[i].position[0], lights[i].position[1], lights[i].position[2]);
-    Ray ray(point, lightPos - point);
+    Color total;
+    for (int s=0; s<LIGHT_SAMPLES; s++){
+      Vector3 lightPos = lights[i].GetRandomPointOnLight();
+      Vector3 L = lightPos - point; float maxT = L.Length(); L.Normalize();
+      Vector3 N = source.GetInterpolatedNormal(point);
+      Ray ray(point + SMALL_VALUE * N, L);
 
-    float sphere_t, tri_t;
-    Sphere hitSphere;
-    Triangle hitTriangle;
-    bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
-    bool tri_intersect = CheckTriangleIntersections(ray, hitTriangle, tri_t);
+      float sphere_t, tri_t;
+      Sphere hitSphere;
+      Triangle hitTriangle;
+      bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
+      bool tri_intersect = CheckTriangleIntersections(ray, hitTriangle, tri_t);
 
-    // if (sphere_intersect && tri_intersect) {
-    //   if (sphere_t < tri_t) {
-    //     Vector3 hitPosition = ray.at(sphere_t);
-    //     Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, depth + 1);
-    //     color = color + sub;
-    //     continue;
-    //   } else {
-    //     Vector3 hitPosition = ray.at(tri_t);
-    //     Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, depth + 1);
-    //     color = color + sub;
-    //     continue;
-    //   }
-    // }
-    // else
-    if (sphere_intersect) {
-      // Vector3 hitPosition = ray.at(sphere_t);
-      // Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, depth + 1);
-      // color = color + sub;
-      continue;
+      if ((sphere_intersect && sphere_t > SMALL_VALUE && sphere_t < maxT) ||
+          (tri_intersect && tri_t > SMALL_VALUE && tri_t < maxT)) {
+        continue;
+      }
+      else{
+        Vector3 l = ray.d; l.Normalize();
+        Vector3 n = source.GetInterpolatedNormal(point);
+        Vector3 v = -1.0 * view.d; v.Normalize();
+        Color newCol = CalculateTriangleColor(source, lights[i], point, l, n, v);
+        total = total + newCol;
+      }
     }
-    else if (tri_intersect) {
-      // Vector3 hitPosition = ray.at(tri_t);
-      // Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, depth + 1);
-      // color = color + sub;
-      continue;
-    }
-
-    Vector3 l = ray.d; l.Normalize();
-    Vector3 n = source.GetInterpolatedNormal(point);
-    Vector3 v = -1.0 * view.d; v.Normalize();
-    Color newCol = CalculateTriangleColor(source, lights[i], point, l, n, v);
-    color = color + newCol;
+    Color softshadowColor = total * (1.0f / LIGHT_SAMPLES);
+    color = color + softshadowColor;
   }
   // ambient
   Color amb(ambient_light[0], ambient_light[1], ambient_light[2]);
@@ -414,40 +410,40 @@ Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, int de
   return color;
 }
 
-Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, int depth)
+Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, float view_t, int depth)
 {
   if (depth >= MAX_DEPTH){
     return Color();
   }
   Color color;
   for (int i = 0; i < num_lights; i++) {
-    Vector3 lightPos(lights[i].position[0], lights[i].position[1], lights[i].position[2]);
-    Ray ray(point, lightPos - point);
+    Color total;
+    for(int s=0; s<LIGHT_SAMPLES; s++){
+      Vector3 lightPos = lights[i].GetRandomPointOnLight();
+      Vector3 L = lightPos - point; float maxT = L.Length(); L.Normalize();
+      Vector3 N = (point - Vector3(source.position[0], source.position[1], source.position[2])) / source.radius;
+      Ray ray(point + SMALL_VALUE * N, L);
 
-    float sphere_t, tri_t;
-    Sphere hitSphere;
-    Triangle hitTriangle;
-    bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
-    bool tri_intersect    = CheckTriangleIntersections(ray, hitTriangle, tri_t);
+      float sphere_t, tri_t;
+      Sphere hitSphere;
+      Triangle hitTriangle;
+      bool sphere_intersect = CheckSphereIntersections(ray, hitSphere, sphere_t);
+      bool tri_intersect = CheckTriangleIntersections(ray, hitTriangle, tri_t);
 
-    if (sphere_intersect) {
-      Vector3 hitPosition = ray.at(sphere_t);
-      Color sub = CastShadowRayFromSphere(hitPosition, hitSphere, view, depth + 1);
-      color = color + sub;
-      continue;
+      if ((sphere_intersect && sphere_t > 0 && sphere_t < maxT) ||
+          (tri_intersect && tri_t > 0 && tri_t < maxT)) {
+        continue;
+      }
+      else{
+        Vector3 l = ray.d; l.Normalize();
+        Vector3 n = (point - Vector3(source.position[0], source.position[1], source.position[2])) / source.radius;
+        Vector3 v = -1.0 * view.d; v.Normalize();
+        Color newCol = CalculateSphereColor(source, lights[i], l, n, v);
+        total = total + newCol;
+      }
     }
-    else if (tri_intersect) {
-      Vector3 hitPosition = ray.at(tri_t);
-      Color sub = CastShadowRayFromTriangle(hitPosition, hitTriangle, view, depth + 1);
-      color = color + sub;
-      continue;
-    }
-
-    Vector3 l = ray.d; l.Normalize();
-    Vector3 n = (point - Vector3(source.position[0], source.position[1], source.position[2])) / source.radius;
-    Vector3 v = -1 * view.d; v.Normalize();
-    Color newCol = CalculateSphereColor(source, lights[i], l, n, v);
-    color = color + newCol;
+    Color softshadowColor = total * (1.0f / LIGHT_SAMPLES);
+    color = color + softshadowColor;
   }
   // ambient
   Color amb(ambient_light[0], ambient_light[1], ambient_light[2]);
@@ -470,20 +466,20 @@ Color CastCameraRay(Ray ray, int depth = 0)
   if (sphere_intersect && tri_intersect) {
     if (sphere_t < tri_t) {
       Vector3 hitPosition = ray.at(sphere_t);
-      return CastShadowRayFromSphere(hitPosition, hitSphere, ray);
+      return CastShadowRayFromSphere(hitPosition, hitSphere, ray, sphere_t);
     } else {
       Vector3 hitPosition = ray.at(tri_t);
-      return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray);
+      return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray, tri_t);
     }
   }
   else if (sphere_intersect) {
     Vector3 hitPosition = ray.at(sphere_t);
     // return Color(hitSphere.color_diffuse[0], hitSphere.color_diffuse[1], hitSphere.color_diffuse[2]);
-    return CastShadowRayFromSphere(hitPosition, hitSphere, ray);
+    return CastShadowRayFromSphere(hitPosition, hitSphere, ray, sphere_t);
   } else if (tri_intersect) {
     Vector3 hitPosition = ray.at(tri_t);
     // return Color(hitTriangle.v[0].color_diffuse[0], hitTriangle.v[0].color_diffuse[1], hitTriangle.v[0].color_diffuse[2]);
-    return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray);
+    return CastShadowRayFromTriangle(hitPosition, hitTriangle, ray, tri_t);
   } else {
     return BACKGROUND_COLOR;
   }

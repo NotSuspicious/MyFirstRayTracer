@@ -53,6 +53,17 @@ struct Vector3
         Vector3 reflected = normalizedN * dot;
         return v - reflected;
     }
+    static Vector3 RandomInUnitSphere()
+    {
+        float x, y, z;
+        do
+        {
+            x = static_cast<float>(rand()) / RAND_MAX * 2 - 1;
+            y = static_cast<float>(rand()) / RAND_MAX * 2 - 1;
+            z = static_cast<float>(rand()) / RAND_MAX * 2 - 1;
+        } while (x * x + y * y + z * z >= 1);
+        return Vector3(x, y, z);
+    }
     float Length() const
     {
         return std::sqrt(x * x + y * y + z * z);
@@ -170,7 +181,6 @@ struct Ray
     Vector3 p,d;
     Ray(Vector3 pVect, Vector3 dVect)
     {
-        pVect.Normalize();
         dVect.Normalize();
         p = pVect;
         d = dVect;

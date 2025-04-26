@@ -16,9 +16,9 @@ Feature:                                 Status: finish? (yes/no)
 
 4) Sphere Phong Shading                   DONE
 
-5) Shadows rays                           !!!no, explain!!!
+5) Shadows rays                           DONE
 
 6) Still images                           !!!no, explain!!!
    
-7) Extra Credit (up to 30 points)
-   !!! explain your extra credit here, if applicable !!!
+7) Soft Shadows using Area Lights
+- To reduce shadow acne, increase LIGHT_SAMPLES in hw3.cpp

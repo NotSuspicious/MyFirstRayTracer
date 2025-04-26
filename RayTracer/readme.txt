@@ -8,7 +8,7 @@ MANDATORY FEATURES
 
 Feature:                                 Status: finish? (yes/no)
 -------------------------------------    -------------------------
-1) Ray tracing triangles                  !!!no, explain!!!
+1) Ray tracing triangles                  DONE
 
 2) Ray tracing sphere                     DONE
 

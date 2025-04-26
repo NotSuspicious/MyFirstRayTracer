@@ -79,6 +79,16 @@ struct Triangle
     planeNormal.Normalize();
   }
 
+  Vector3 GetInterpolatedNormal(Vector3 p) {
+    Vector3 bary = CalculateBarycentricCoordinates(*this, p);
+    Vector3 normal;
+    normal = normal + bary.x * Vector3(v[0].normal[0], v[0].normal[1], v[0].normal[2]);
+    normal = normal + bary.y * Vector3(v[1].normal[0], v[1].normal[1], v[1].normal[2]);
+    normal = normal + bary.z * Vector3(v[2].normal[0], v[2].normal[1], v[2].normal[2]);
+    normal.Normalize();
+    return normal;
+  }
+
   Vector3 CalculateBarycentricCoordinates(Triangle triangle, Vector3 p){
     Vector3 barycentric;
     float ax, ay, bx, by, cx, cy, px, py;
@@ -308,7 +318,12 @@ void draw_scene()
       unsigned char b;
 
       if (hasTriangleIntersect){
-        r = 255;
+        Vector3 hitPoint = ray.at(triT);
+        Vector3 interpolatedNormal = hitTri.GetInterpolatedNormal(hitPoint);
+
+        r = (unsigned char)(127.5f * (interpolatedNormal.x + 1.0f));
+        g = (unsigned char)(127.5f * (interpolatedNormal.y + 1.0f));
+        b = (unsigned char)(127.5f * (interpolatedNormal.z + 1.0f));
       }
 
       if (hasSphereIntersect){

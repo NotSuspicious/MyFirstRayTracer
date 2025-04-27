@@ -35,7 +35,8 @@
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
 #define SMALL_VALUE 1e-4
-#define LIGHT_SAMPLES 128
+#define LIGHT_SAMPLES 64
+#define SUPER_SAMPLING 2
 
 char * filename = NULL;
 
@@ -49,8 +50,8 @@ int mode = MODE_DISPLAY;
 // While solving the homework, it is useful to make the below values smaller for debugging purposes.
 // The still images that you need to submit with the homework should be at the below resolution (640x480).
 // However, for your own purposes, after you have solved the homework, you can increase those values to obtain higher-resolution images.
-#define WIDTH 640
-#define HEIGHT 480
+#define WIDTH 160
+#define HEIGHT 120
 
 // The field of view of the camera, in degrees.
 #define fov 60.0
@@ -59,7 +60,7 @@ int mode = MODE_DISPLAY;
 // Buffer to store the image when saving it to a JPEG.
 unsigned char buffer[HEIGHT][WIDTH][3];
 
-unsigned char colors[HEIGHT][WIDTH][3];
+unsigned char colors[HEIGHT*SUPER_SAMPLING][WIDTH*SUPER_SAMPLING][3];
 
 struct Vertex
 {
@@ -204,17 +205,17 @@ void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 Color CastShadowRayFromTriangle(Vector3 point, Triangle source, Ray view, float view_t, int depth = 0);
 Color CastShadowRayFromSphere(Vector3 point, Sphere source, Ray view, float view_t, int depth = 0);
 
-Ray cameraRays[HEIGHT][WIDTH];
+Ray cameraRays[HEIGHT * SUPER_SAMPLING][WIDTH * SUPER_SAMPLING];
 
 void GenerateCameraRays() {
   float aspect = (float)WIDTH / (float)HEIGHT;
-  float scale = tan(fov * 0.5 * M_PI / 180.0);
-  for (int y = 0; y < HEIGHT; y++) {
-    for (int x = 0; x < WIDTH; x++) {
-      float px = (2 * ((x + 0.5f) / (float)WIDTH) - 1) * aspect * scale;
-      float py = (1 - 2 * ((y + 0.5f) / (float)HEIGHT)) * scale;
+  float scale = tan(fov * 0.5f * M_PI / 180.0f);
+  for (int y = 0; y < HEIGHT * SUPER_SAMPLING; y++) {
+    for (int x = 0; x < WIDTH * SUPER_SAMPLING; x++) {
+      float px = (2.0f * ((x + 0.5f) / (float)(WIDTH * SUPER_SAMPLING)) - 1.0f) * aspect * scale;
+      float py = (1.0f - 2.0f * ((y + 0.5f) / (float)(HEIGHT * SUPER_SAMPLING))) * scale;
       Vector3 dir(px, py, -1.0f);
-      cameraRays[HEIGHT-y-1][x] = Ray(Vector3(0, 0, 0), dir);
+      cameraRays[HEIGHT * SUPER_SAMPLING - y - 1][x] = Ray(Vector3(0, 0, 0), dir);
     }
   }
 }
@@ -485,52 +486,20 @@ Color CastCameraRay(Ray ray, int depth = 0)
   }
 }
 
+bool IsInColors(int x, int y)
+{
+  if (x < 0 || x >= WIDTH * SUPER_SAMPLING || y < 0 || y >= HEIGHT * SUPER_SAMPLING) {
+    return false;
+  }
+  return true;
+}
+
 void draw_scene()
 {
   GenerateCameraRays();
-  for(unsigned int x=0; x<WIDTH; x++)
-  {
-    glPointSize(2.0);  
-    // Do not worry about this usage of OpenGL. This is here just so that we can draw the pixels to the screen,
-    // after their R,G,B colors were determined by the ray tracer.
-    glBegin(GL_POINTS);
-    for(unsigned int y=0; y<HEIGHT; y++)
-    {
+  for (int y = 0; y < HEIGHT * SUPER_SAMPLING; y++) {
+    for (int x = 0; x < WIDTH * SUPER_SAMPLING; x++) {
       Ray ray = cameraRays[y][x];
-      // float t;
-      // Sphere hitSphere;
-      // bool hasSphereIntersect = CheckSphereIntersections(ray, hitSphere, t);
-
-      // float triT;
-      // Triangle hitTri;
-      // bool hasTriangleIntersect = CheckTriangleIntersections(ray, hitTri, triT);
-      // // A simple R,G,B output for testing purposes.
-      // // Modify these R,G,B colors to the values computed by your ray tracer.
-      // unsigned char r = 0; // modify
-      // unsigned char g = 0; // modify
-      // unsigned char b;
-
-      // if (hasTriangleIntersect){
-      //   Vector3 hitPoint = ray.at(triT);
-      //   Vector3 interpolatedNormal = hitTri.GetInterpolatedNormal(hitPoint);
-
-      //   r = (unsigned char)(127.5f * (interpolatedNormal.x + 1.0f));
-      //   g = (unsigned char)(127.5f * (interpolatedNormal.y + 1.0f));
-      //   b = (unsigned char)(127.5f * (interpolatedNormal.z + 1.0f));
-      // }
-
-      // if (hasSphereIntersect){
-      //   Vector3 spherePos( hitSphere.position[0],hitSphere.position[1],hitSphere.position[2]);
-      //   Vector3 normal = (ray.at(t) - spherePos)/hitSphere.radius;
-
-      //   r = (unsigned char)(127.5f * (normal.x + 1.0f));
-      //   g = (unsigned char)(127.5f * (normal.y + 1.0f));
-      //   b = (unsigned char)(127.5f * (normal.z + 1.0f));
-      // }
-      // else{
-      //   b = 0;
-      // }
-
       Color color = CastCameraRay(ray);
       unsigned char r = (unsigned char)(color.r * 255);
       unsigned char g = (unsigned char)(color.g * 255);
@@ -539,16 +508,34 @@ void draw_scene()
       colors[y][x][1] = g;
       colors[y][x][2] = b;
     }
-
-    for (int y = 0; y < HEIGHT; y++) {
-      for (int x = 0; x < WIDTH; x++) {
-        unsigned char r = colors[y][x][0];
-        unsigned char g = colors[y][x][1];
-        unsigned char b = colors[y][x][2];
-        plot_pixel(x, y, r, g, b);
+  }
+  for(unsigned int x=0; x<WIDTH; x++)
+  {
+    glPointSize(2.0);  
+    // Do not worry about this usage of OpenGL. This is here just so that we can draw the pixels to the screen,
+    // after their R,G,B colors were determined by the ray tracer.
+    glBegin(GL_POINTS);
+    for(unsigned int y=0; y<HEIGHT; y++)
+    {
+      Color superSampledColor;
+      for (int i = 0; i < SUPER_SAMPLING; i++) {
+        for (int j = 0; j < SUPER_SAMPLING; j++) {
+          if (IsInColors(x*SUPER_SAMPLING+i, y*SUPER_SAMPLING+j)) {
+            unsigned char g = colors[y*SUPER_SAMPLING+i][x*SUPER_SAMPLING+j][1];
+            unsigned char r = colors[y*SUPER_SAMPLING+i][x*SUPER_SAMPLING+j][0];
+            unsigned char b = colors[y*SUPER_SAMPLING+i][x*SUPER_SAMPLING+j][2];
+            superSampledColor = superSampledColor + Color(((float)r) / 255.0f, ((float)g) / 255.0f, ((float)b) / 255.0f);
+          }
+          
+        }
       }
+      superSampledColor = superSampledColor * (1.0f / pow(SUPER_SAMPLING, 2));
+      unsigned char r = (unsigned char)(superSampledColor.r * 255);
+      unsigned char g = (unsigned char)(superSampledColor.g * 255);
+      unsigned char b = (unsigned char)(superSampledColor.b * 255);
+      plot_pixel(x, y, r, g, b);
     }
-    
+
     glEnd();
     glFlush();
   }

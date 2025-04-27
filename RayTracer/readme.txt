@@ -29,9 +29,10 @@ Feature:
 Samples
 -------------------------------------
 Samples 001.jpg and 002.jpg show features 7 & 8.
-The other samples have acne and no AA because it's slow to render
+
+Samples 002.jpg and 004.jpg have shadow acne and no AA because it's slow to render
 
 Instructions
 ------------------
-Render Test1.scene and Spheres.scene first, to see render time.
+Render Test1.scene and Spheres.scene first, to get a sense of render time.
 If nothing shows up for a while, try reducing LIGHT_SAMPLES to 1 and SUPER_SAMPLING to 1

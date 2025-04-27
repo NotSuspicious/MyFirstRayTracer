@@ -50,8 +50,8 @@ int mode = MODE_DISPLAY;
 // While solving the homework, it is useful to make the below values smaller for debugging purposes.
 // The still images that you need to submit with the homework should be at the below resolution (640x480).
 // However, for your own purposes, after you have solved the homework, you can increase those values to obtain higher-resolution images.
-#define WIDTH 160
-#define HEIGHT 120
+#define WIDTH 640
+#define HEIGHT 480
 
 // The field of view of the camera, in degrees.
 #define fov 60.0

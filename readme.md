@@ -22,11 +22,11 @@ Samples 3 and 4 have shadow acne and no SSAA because it's slow to render.
 4. Soft Shadows with Area Lights
 - To reduce shadow acne, increase ```LIGHT_SAMPLES``` in ```hw3.cpp```
 5. Super Sampling Anti-Aliasing
-- To adjust sample size, change `````SUPER_SAMPLING``` to 2 in ```hw3.cpp```
+- To adjust sample size, change ```SUPER_SAMPLING``` to 2 in ```hw3.cpp```
 
 # Instructions
 1. Compile using the Makefile in ```MyFirstRayTracer/RayTracer```
 2. Usage ```./hw3 <input scenefile> [output jpegname]```
    - Scenes are in ```MyFirstRayTracer/RayTracer/scenes```
-3. Render ```test1.scene``` and ```spheres.scene```` first, to get a sense of render time.
+3. Render ```test1.scene``` and ```spheres.scene``` first, to get a sense of render time.
    - If nothing shows up for a while, try reducing LIGHT_SAMPLES to 1 and SUPER_SAMPLING to 1

@@ -35,7 +35,7 @@
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
 #define SMALL_VALUE 1e-4
-#define LIGHT_SAMPLES 1024
+#define LIGHT_SAMPLES 128
 
 char * filename = NULL;
 
@@ -179,7 +179,7 @@ struct Light
 {
   double position[3];
   double color[3];
-  double radius = 1.0f;
+  double radius = 0.5f;
   Vector3 GetRandomPointOnLight() {
     Vector3 lightPos(position[0], position[1], position[2]);
     Vector3 randomPoint = lightPos + Vector3::RandomInUnitSphere() * radius;
@@ -538,12 +538,21 @@ void draw_scene()
       colors[y][x][0] = r;
       colors[y][x][1] = g;
       colors[y][x][2] = b;
-
-      plot_pixel(x, y, r, g, b);
     }
+
+    for (int y = 0; y < HEIGHT; y++) {
+      for (int x = 0; x < WIDTH; x++) {
+        unsigned char r = colors[y][x][0];
+        unsigned char g = colors[y][x][1];
+        unsigned char b = colors[y][x][2];
+        plot_pixel(x, y, r, g, b);
+      }
+    }
+    
     glEnd();
     glFlush();
   }
+
   printf("Ray tracing completed.\n"); 
   fflush(stdout);
 }

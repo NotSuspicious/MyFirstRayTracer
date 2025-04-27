@@ -24,4 +24,14 @@ Feature:
 - To reduce shadow acne, increase LIGHT_SAMPLES in hw3.cpp
 
 8) Super Sampling Anti Aliasing
-- To adjust sample size, change SUPER_SAMPLING in hw3.cpp
+- To adjust sample size, change SUPER_SAMPLING to 2 in hw3.cpp
+
+Samples
+-------------------------------------
+Samples 001.jpg and 002.jpg show features 7 & 8.
+The other samples have acne and no AA because it's slow to render
+
+Instructions
+------------------
+Render Test1.scene and Spheres.scene first, to see render time.
+If nothing shows up for a while, try reducing LIGHT_SAMPLES to 1 and SUPER_SAMPLING to 1

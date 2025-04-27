@@ -35,8 +35,8 @@
 #define MAX_SPHERES 100
 #define MAX_LIGHTS 100
 #define SMALL_VALUE 1e-4
-#define LIGHT_SAMPLES 64
-#define SUPER_SAMPLING 2
+#define LIGHT_SAMPLES 128
+#define SUPER_SAMPLING 1
 
 char * filename = NULL;
 
@@ -501,6 +501,12 @@ void draw_scene()
     for (int x = 0; x < WIDTH * SUPER_SAMPLING; x++) {
       Ray ray = cameraRays[y][x];
       Color color = CastCameraRay(ray);
+      if (color.r < 0) color.r = 0; 
+      else if (color.r > 1) color.r = 1;
+      if (color.g < 0) color.g = 0; 
+      else if (color.g > 1) color.g = 1;
+      if (color.b < 0) color.b = 0; 
+      else if (color.b > 1) color.b = 1;
       unsigned char r = (unsigned char)(color.r * 255);
       unsigned char g = (unsigned char)(color.g * 255);
       unsigned char b = (unsigned char)(color.b * 255);
